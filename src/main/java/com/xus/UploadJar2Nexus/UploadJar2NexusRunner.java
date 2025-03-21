@@ -2,19 +2,10 @@ package com.xus.UploadJar2Nexus;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.net.HttpURLConnection;
-import java.net.URL;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.channels.FileChannel;
-import java.time.Duration;
-import java.util.Base64;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -22,6 +13,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.apache.http.HttpResponse;
+import org.apache.http.auth.AuthScope;
+import org.apache.http.auth.UsernamePasswordCredentials;
+import org.apache.http.client.CredentialsProvider;
+import org.apache.http.client.methods.HttpPut;
+import org.apache.http.entity.FileEntity;
+import org.apache.http.impl.client.BasicCredentialsProvider;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,7 +33,7 @@ public class UploadJar2NexusRunner {
     // 线程池执行器，用于并发处理文件上传任务
     private ExecutorService executorService;
     // HTTP客户端，用于执行上传请求
-    private HttpClient httpClient;
+    private CloseableHttpClient httpClient;
     // 当前活跃的上传任务计数器
     private final AtomicInteger activeUploads = new AtomicInteger(0);
     // 上传任务队列大小，可根据系统内存调整
@@ -71,11 +71,14 @@ public class UploadJar2NexusRunner {
     }
 
     private void initHttpClient() {
-        httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .executor(Executors.newFixedThreadPool(Math.max(5, threadPoolSize / 2))) // HTTP客户端使用较少的线程
-                .followRedirects(HttpClient.Redirect.NORMAL) // 添加重定向支持
-                .version(HttpClient.Version.HTTP_2)  // 启用HTTP/2
+        CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
+        credentialsProvider.setCredentials(
+            new AuthScope(AuthScope.ANY_HOST, AuthScope.ANY_PORT),
+            new UsernamePasswordCredentials(username, password)
+        );
+        
+        httpClient = HttpClients.custom()
+                .setDefaultCredentialsProvider(credentialsProvider)
                 .build();
     }
 
@@ -137,6 +140,7 @@ public class UploadJar2NexusRunner {
             return;
         }
 
+
         try {
             startTime = System.currentTimeMillis();
             // 优化线程池配置
@@ -192,6 +196,13 @@ public class UploadJar2NexusRunner {
         } finally {
             if (executorService != null && !executorService.isShutdown()) {
                 executorService.shutdownNow();
+            }
+            if (httpClient != null) {
+                try {
+                    httpClient.close();
+                } catch (IOException e) {
+                    logger.error("Error closing httpClient", e);
+                }
             }
         }
     }
@@ -319,10 +330,15 @@ public class UploadJar2NexusRunner {
      */
     private void uploadArtifactToNexus(String groupId, String artifactId, String version, File file, String type)
             throws IOException {
-        String url = nexusUrl + "/" + groupId.replace(".", "/") + "/" + artifactId + "/" + version + "/" + artifactId
+        // 移除URL中的多余空格并规范化URL格式
+        String baseUrl = nexusUrl.trim();
+        if (!baseUrl.endsWith("/")) {
+            baseUrl = baseUrl + "/";
+        }
+        String url = baseUrl + groupId.replace(".", "/") + "/" + artifactId + "/" + version + "/" + artifactId
                 + "-" + version + "." + type;
 
-        uploadFile(url, file);
+        uploadFile(url.trim(), file);
     }
 
     /**
@@ -338,31 +354,17 @@ public class UploadJar2NexusRunner {
             return;
         }
 
-        String auth = Base64.getEncoder().encodeToString((username + ":" + password).getBytes());
-        
         try (FileInputStream fis = new FileInputStream(file);
              FileChannel fileChannel = fis.getChannel()) {
             
-            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
-                .uri(new URL(fileUrl).toURI())
-                .header("Content-Type", "application/java-archive")
-                .header("Authorization", "Basic " + auth);
-                // 移除 Content-Length header，让系统自动处理
-
-            HttpRequest request = requestBuilder
-                .PUT(HttpRequest.BodyPublishers.ofInputStream(() -> {
-                    try {
-                        return new FileInputStream(file);
-                    } catch (FileNotFoundException e) {
-                        logger.error("文件不存在或无法访问: {} - {}", file.getName(), e.getMessage());
-                        throw new UncheckedIOException(e);
-                    }
-                }))
-                .build();
-
-            HttpResponse<Void> response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+            HttpPut request = new HttpPut(fileUrl);
+            request.setHeader("Content-Type", "application/java-archive");
             
-            int responseCode = response.statusCode();
+            FileEntity entity = new FileEntity(file);
+            request.setEntity(entity);
+            
+            HttpResponse response = httpClient.execute(request);
+            int responseCode = response.getStatusLine().getStatusCode();
             
             if (responseCode == HttpURLConnection.HTTP_CREATED || responseCode == HttpURLConnection.HTTP_OK) {
                 long fileSize = file.length();
@@ -378,7 +380,7 @@ public class UploadJar2NexusRunner {
                         fileCount,
                         String.format("%.2f", elapsedTime));
             } else {
-                logger.error("上传文件失败 {}: {} - {}", file.getName(), responseCode, response.headers().map());
+                logger.error("上传文件失败 {}", file.getName(), responseCode);
             }
         } catch (Exception e) {
             logger.error("上传文件失败: {} - {}", file.getName(), e.getMessage());
@@ -386,23 +388,4 @@ public class UploadJar2NexusRunner {
         }
     }
 
-    /**
-     * 计算最优的缓冲区大小
-     * 根据文件大小动态调整，以平衡内存使用和传输效率：
-     * - 小于1MB的文件使用64KB缓冲区
-     * - 1-10MB的文件使用512KB缓冲区
-     * - 大于10MB的文件使用1MB缓冲区
-     * 
-     * @param fileSize 文件大小（字节）
-     * @return 优化后的缓冲区大小（字节）
-     */
-    private int calculateOptimalBufferSize(long fileSize) {
-        // 根据文件大小动态调整缓冲区大小
-        if (fileSize < 1024 * 1024) { // 小于1MB
-            return 64 * 1024; // 64KB
-        } else if (fileSize < 10 * 1024 * 1024) { // 1-10MB
-            return 512 * 1024; // 512KB
-        }
-        return 1024 * 1024; // 1MB
-    }
 }
