@@ -4,7 +4,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.xus</groupId>
 	<artifactId>upload2Nexus</artifactId>
-	<version>0.0.2-SNAPSHOT</version>
+	<version>0.0.2</version>
 	<properties>
 		<java.version>11</java.version>
 	</properties>
