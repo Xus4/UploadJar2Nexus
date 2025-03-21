@@ -2,7 +2,7 @@
 
 ## 项目简介
 
-Upload2Nexus是一个用于将本地Maven仓库中的JAR和POM文件批量上传到Nexus仓库的Java工具。它支持多线程并发上传，能够自动处理文件路径解析，并支持快照版本筛选。
+UploadJar2Nexus是一个用于将本地Maven仓库中的JAR和POM文件批量上传到Nexus仓库的Java工具。它支持多线程并发上传，能够自动处理文件路径解析，并支持快照版本筛选。
 
 ## 主要特点
 
@@ -18,7 +18,7 @@ Upload2Nexus是一个用于将本地Maven仓库中的JAR和POM文件批量上传
 ### 运行方式
 
 ```bash
-java -jar upload2nexus.jar <repositoryPath> <nexusUrl> <username> <password> <isSnapshots>
+java -jar UploadJar2Nexus.jar <repositoryPath> <nexusUrl> <username> <password> <isSnapshots>
 ```
 
 ### 参数说明
@@ -52,7 +52,7 @@ java -jar upload2nexus.jar <repositoryPath> <nexusUrl> <username> <password> <is
 ## 运行示例
 
 ```bash
-java -jar upload2nexus.jar "C:\Users\Administrator\.m2\repository" "http://localhost:8081/repository/maven2-test/" "admin" "admin123" "false"
+java -jar UploadJar2Nexus.jar "C:\Users\Administrator\.m2\repository" "http://localhost:8081/repository/maven2-test/" "admin" "admin123" "false"
 ```
 
 ## 输出信息
