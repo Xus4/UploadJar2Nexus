@@ -371,7 +371,7 @@ public class UploadJar2NexusRunner {
                 int fileCount = totalUploadedFiles.incrementAndGet();
                 
                 double elapsedTime = (System.currentTimeMillis() - startTime) / 1000.0;
-                logger.info("已上传 {} ({}) - 总计: {} MB, 文件数: {} 用时: {} 秒",
+                logger.info("已上传 {} ({}) - 总计: {} MB, 文件数: {} 总用时: {} 秒",
                         file.getName(),
                         String.format("%.2f MB", fileSize / (1024.0 * 1024.0)),
                         String.format("%.2f", totalSizeMB),
