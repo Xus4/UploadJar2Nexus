@@ -1,4 +1,4 @@
-package com.upload2Nexus;
+package com.UploadJar2Nexus;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -29,7 +29,7 @@ import org.slf4j.LoggerFactory;
  * 用于将JAR和POM文件上传到Nexus仓库的主类
  * 支持多线程并发上传，自动处理文件路径解析，支持快照版本筛选
  */
-public class Upload2NexusRunner {
+public class UploadJar2NexusRunner {
     // 线程池执行器，用于并发处理文件上传任务
     private ExecutorService executorService;
     // HTTP客户端，用于执行上传请求
@@ -41,7 +41,7 @@ public class Upload2NexusRunner {
     // 已成功上传的文件计数器
     private static final AtomicInteger totalUploadedFiles = new AtomicInteger(0);
 
-    private static final Logger logger = LoggerFactory.getLogger(Upload2NexusRunner.class);
+    private static final Logger logger = LoggerFactory.getLogger(UploadJar2NexusRunner.class);
     // 已上传文件的总大小（字节）
     private static AtomicLong totalUploadSize = new AtomicLong(0);
     // 上传开始时间（毫秒）
@@ -64,7 +64,7 @@ public class Upload2NexusRunner {
     // 单个文件大小限制，默认1GB，可根据Nexus服务器配置调整
     private long maxFileSize = 1024 * 1024 * 1024;
 
-    public Upload2NexusRunner() {
+    public UploadJar2NexusRunner() {
         // 确保线程池大小在合理范围内
         threadPoolSize = Math.min(threadPoolSize, MAX_POOL_SIZE);
         initHttpClient();
@@ -79,7 +79,7 @@ public class Upload2NexusRunner {
                 .build();
     }
 
-    public Upload2NexusRunner(String repositoryPath, String nexusUrl, String username, String password, boolean isSnapshots) {
+    public UploadJar2NexusRunner(String repositoryPath, String nexusUrl, String username, String password, boolean isSnapshots) {
         if (repositoryPath == null || repositoryPath.trim().isEmpty()) {
             throw new IllegalArgumentException("Repository path cannot be null or empty");
         }
@@ -110,13 +110,13 @@ public class Upload2NexusRunner {
      *            5. isSnapshots - 是否只上传快照版本（true/false）
      */
     public static void main(String[] args) {
-        Upload2NexusRunner runner = new Upload2NexusRunner();
+        UploadJar2NexusRunner runner = new UploadJar2NexusRunner();
 
         if (args.length < 5) {
             logger.info("Usage: java -jar jar-file.jar <repositoryPath> <nexusUrl> <username> <password> <isSnapshots>");
             //return;
         } else {
-            runner = new Upload2NexusRunner(
+            runner = new UploadJar2NexusRunner(
                 args[0], 
                 args[1],
                 args[2],
