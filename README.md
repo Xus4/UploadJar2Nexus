@@ -38,7 +38,7 @@ java -jar upload-jar2-nexus.jar "C:\Users\Administrator\.m2\repository" "http://
 
 ### JDK要求
 
-- JDK版本：JDK 11或更高版本
+- JDK版本：JDK 8或更高版本
 - 运行时环境：需要配置JAVA_HOME环境变量
 - 内存要求：建议至少1GB可用内存
 
