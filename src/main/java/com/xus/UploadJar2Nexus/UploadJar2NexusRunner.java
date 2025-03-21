@@ -96,11 +96,16 @@ public class UploadJar2NexusRunner {
             throw new IllegalArgumentException("Password cannot be null or empty");
         }
         
-        this.repositoryPath = repositoryPath;
+        // 确保repositoryPath以文件分隔符结尾
+        this.repositoryPath = repositoryPath.endsWith(File.separator) ? repositoryPath : repositoryPath + File.separator;
         this.nexusUrl = nexusUrl;
         this.username = username;
         this.password = password;
         this.isSnapshots = isSnapshots;
+        
+        // 初始化HTTP客户端
+        threadPoolSize = Math.min(threadPoolSize, MAX_POOL_SIZE);
+        initHttpClient();
     }
 
     /**
@@ -140,6 +145,14 @@ public class UploadJar2NexusRunner {
             return;
         }
 
+        // 打印当前配置参数
+        logger.info("当前配置参数：");
+        logger.info("本地仓库路径: {}", repositoryPath);
+        logger.info("Nexus仓库URL: {}", nexusUrl);
+        logger.info("用户名: {}", username);
+        logger.info("是否只上传快照版本: {}", isSnapshots);
+        logger.info("线程池大小: {}", threadPoolSize);
+        logger.info("单个文件大小限制: {} MB", maxFileSize / (1024 * 1024));
 
         try {
             startTime = System.currentTimeMillis();
@@ -162,7 +175,7 @@ public class UploadJar2NexusRunner {
             );
 
             File repositoryDir = new File(repositoryPath);
-
+            logger.info("Repository path: {}", repositoryPath);
             if (!repositoryDir.exists() || !repositoryDir.isDirectory()) {
                 logger.error("Invalid repository path: {}", repositoryPath);
                 return;
@@ -267,7 +280,9 @@ public class UploadJar2NexusRunner {
      */
     private String getGroupId(File file) {
         String filePath = file.getAbsolutePath();
-        filePath = filePath.replace(repositoryPath, "");
+        // 确保repositoryPath以文件分隔符结尾再进行替换
+        String normalizedRepoPath = repositoryPath.endsWith(File.separator) ? repositoryPath : repositoryPath + File.separator;
+        filePath = filePath.replace(normalizedRepoPath, "");
         String[] paths = filePath.split(File.separator.replace("\\", "\\\\"));
         int len = paths.length;
         String groupId = "";
