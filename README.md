@@ -34,6 +34,19 @@ java -jar upload-jar2-nexus.jar <repositoryPath> <nexusUrl> <username> <password
 java -jar upload-jar2-nexus.jar "C:\Users\Administrator\.m2\repository" "http://localhost:8081/repository/maven2-test/" "admin" "admin123" "false"
 ```
 
+## 运行环境要求
+
+### JDK要求
+
+- JDK版本：JDK 8或更高版本
+- 运行时环境：需要配置JAVA_HOME环境变量
+- 内存要求：建议至少1GB可用内存
+
+### 系统兼容性
+
+- 支持Windows/Linux/MacOS等主流操作系统
+- 需要网络连接以访问Nexus仓库
+
 ## 配置说明
 
 ### 默认配置
