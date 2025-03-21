@@ -1,4 +1,4 @@
-package com.UploadJar2Nexus;
+package com.xus.UploadJar2Nexus;
 
 import java.io.File;
 import java.io.FileInputStream;
