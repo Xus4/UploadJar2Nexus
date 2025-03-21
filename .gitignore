@@ -1,0 +1,28 @@
+# Maven
+target/
+*.jar
+*.war
+*.ear
+.classpath
+# IDE
+.idea/
+*.iml
+*.class
+
+# Logs
+*.log
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# User-specific files
+*.user
+*.sublime-workspace
+*.sublime-project
+
+# Other files
+*.tmp
+*.bak
+.factorypath
+.classpath
