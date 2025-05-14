@@ -4,7 +4,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.HttpURLConnection;
-import java.nio.channels.FileChannel;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -18,7 +17,6 @@ import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.CredentialsProvider;
 import org.apache.http.client.methods.HttpPut;
-import org.apache.http.entity.FileEntity;
 import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
@@ -40,6 +38,15 @@ public class UploadJar2NexusRunner {
     private static final int QUEUE_SIZE = 1000;
     // 已成功上传的文件计数器
     private static final AtomicInteger totalUploadedFiles = new AtomicInteger(0);
+    // 上传速率监控（字节/秒）
+    private static final AtomicLong uploadSpeed = new AtomicLong(0);
+    // 上传失败的文件计数
+    private static final AtomicInteger failedUploads = new AtomicInteger(0);
+    // HTTP连接池配置
+    private static final int MAX_CONNECTIONS = 200;
+    private static final int MAX_PER_ROUTE = 20;
+    // 缓冲区大小（8KB）
+    private static final int BUFFER_SIZE = 8 * 1024;
 
     private static final Logger logger = LoggerFactory.getLogger(UploadJar2NexusRunner.class);
     // 已上传文件的总大小（字节）
@@ -48,7 +55,7 @@ public class UploadJar2NexusRunner {
     private static long startTime = 0;
 
     // Maven本地仓库路径，默认使用用户目录下的.m2/repository
-    public String repositoryPath = "C:\\Users\\Administrator\\.m2\\repository\\";
+    public String repositoryPath = "C:\\Users\\luyim\\.m2\\repository";
     // Nexus仓库URL，根据实际部署情况修改
     public String nexusUrl = "http://localhost:8081/repository/maven2-test/";
     // Nexus仓库访问用户名
@@ -77,9 +84,19 @@ public class UploadJar2NexusRunner {
             new UsernamePasswordCredentials(username, password)
         );
         
+        org.apache.http.client.config.RequestConfig requestConfig = org.apache.http.client.config.RequestConfig.custom()
+            .setConnectTimeout(30000)
+            .setSocketTimeout(30000)
+            .setConnectionRequestTimeout(30000)
+            .build();
+
         httpClient = HttpClients.custom()
-                .setDefaultCredentialsProvider(credentialsProvider)
-                .build();
+            .setDefaultCredentialsProvider(credentialsProvider)
+            .setMaxConnTotal(MAX_CONNECTIONS)
+            .setMaxConnPerRoute(MAX_PER_ROUTE)
+            .setDefaultRequestConfig(requestConfig)
+            .setKeepAliveStrategy((response, context) -> 30 * 1000)
+            .build();
     }
 
     public UploadJar2NexusRunner(String repositoryPath, String nexusUrl, String username, String password, boolean isSnapshots) {
@@ -300,6 +317,16 @@ public class UploadJar2NexusRunner {
      * @param file 要处理的文件（JAR或POM文件）
      * @param type 文件类型，"jar"或"pom"
      */
+    private String formatSpeed(long bytesPerSecond) {
+        if (bytesPerSecond < 1024) {
+            return bytesPerSecond + " B";
+        } else if (bytesPerSecond < 1024 * 1024) {
+            return String.format("%.2f KB", bytesPerSecond / 1024.0);
+        } else {
+            return String.format("%.2f MB", bytesPerSecond / (1024.0 * 1024.0));
+        }
+    }
+
     private void processArtifactFile(File file, String type) {
         if (isSnapshots) {
             if (!file.getName().toLowerCase().contains("snapshot")) {
@@ -362,6 +389,9 @@ public class UploadJar2NexusRunner {
      * @param file 要上传的文件
      * @throws IOException 如果在上传过程中发生I/O错误
      */
+    private static final int MAX_RETRIES = 3;
+    private static final long RETRY_DELAY_MS = 1000;
+
     private void uploadFile(String fileUrl, File file) throws IOException {
         if (file.length() > maxFileSize) {
             logger.error("文件 {} 超过允许的最大大小 {} MB", 
@@ -369,38 +399,80 @@ public class UploadJar2NexusRunner {
             return;
         }
 
-        try (FileInputStream fis = new FileInputStream(file);
-             FileChannel fileChannel = fis.getChannel()) {
-            
-            HttpPut request = new HttpPut(fileUrl);
-            request.setHeader("Content-Type", "application/java-archive");
-            
-            FileEntity entity = new FileEntity(file);
-            request.setEntity(entity);
-            
-            HttpResponse response = httpClient.execute(request);
-            int responseCode = response.getStatusLine().getStatusCode();
-            
-            if (responseCode == HttpURLConnection.HTTP_CREATED || responseCode == HttpURLConnection.HTTP_OK) {
-                long fileSize = file.length();
-                long currentTotal = totalUploadSize.addAndGet(fileSize);
-                double totalSizeMB = currentTotal / (1024.0 * 1024.0);
-                int fileCount = totalUploadedFiles.incrementAndGet();
-                
-                double elapsedTime = (System.currentTimeMillis() - startTime) / 1000.0;
-                logger.info("已上传 {} ({}) - 总计: {} MB, 文件数: {} 总用时: {} 秒",
-                        file.getName(),
-                        String.format("%.2f MB", fileSize / (1024.0 * 1024.0)),
-                        String.format("%.2f", totalSizeMB),
-                        fileCount,
-                        String.format("%.2f", elapsedTime));
-            } else {
-                logger.error("上传文件失败 {}", file.getName(), responseCode);
+        long startUploadTime = System.currentTimeMillis();
+        int retryCount = 0;
+        IOException lastException = null;
+
+        // 读取文件内容到内存中，创建可重复使用的HttpEntity
+        byte[] fileContent;
+        try (FileInputStream fis = new FileInputStream(file)) {
+            fileContent = new byte[(int) file.length()];
+            try (java.io.BufferedInputStream bis = new java.io.BufferedInputStream(fis, BUFFER_SIZE)) {
+                int bytesRead = bis.read(fileContent);
+                if (bytesRead != file.length()) {
+                    throw new IOException("Failed to read complete file content");
+                }
             }
-        } catch (Exception e) {
-            logger.error("上传文件失败: {} - {}", file.getName(), e.getMessage());
-            throw new IOException("上传文件失败: " + file.getName(), e);
+        }
+
+        while (retryCount < MAX_RETRIES) {
+            try {
+                HttpPut request = new HttpPut(fileUrl);
+                request.setHeader("Content-Type", "application/java-archive");
+                
+                // 使用ByteArrayEntity确保请求可重复
+                org.apache.http.entity.ByteArrayEntity entity = new org.apache.http.entity.ByteArrayEntity(fileContent);
+                request.setEntity(entity);
+                
+                HttpResponse response = httpClient.execute(request);
+                int responseCode = response.getStatusLine().getStatusCode();
+                
+                if (responseCode == HttpURLConnection.HTTP_CREATED || responseCode == HttpURLConnection.HTTP_OK) {
+                    long fileSize = file.length();
+                    long currentTotal = totalUploadSize.addAndGet(fileSize);
+                    double totalSizeMB = currentTotal / (1024.0 * 1024.0);
+                    int fileCount = totalUploadedFiles.incrementAndGet();
+                    
+                    // 计算上传速度
+                    long uploadTime = System.currentTimeMillis() - startUploadTime;
+                    long speed = uploadTime > 0 ? (fileSize * 1000 / uploadTime) : 0;
+                    uploadSpeed.set(speed);
+                    
+                    double elapsedTime = (System.currentTimeMillis() - startTime) / 1000.0;
+                    logger.info("已上传 {} ({}) - 速度: {}/s, 总计: {} MB, 文件数: {} 总用时: {} 秒",
+                            file.getName(),
+                            String.format("%.2f MB", fileSize / (1024.0 * 1024.0)),
+                            formatSpeed(speed),
+                            String.format("%.2f", totalSizeMB),
+                            fileCount,
+                            String.format("%.2f", elapsedTime));
+                    return;
+                } else {
+                    lastException = new IOException("上传失败，HTTP状态码: " + responseCode);
+                }
+            } catch (IOException e) {
+                lastException = e;
+                logger.warn("上传重试 {}/{} 失败: {} - {}", 
+                    retryCount + 1, MAX_RETRIES, file.getName(), e.getMessage());
+            }
+
+            retryCount++;
+            if (retryCount < MAX_RETRIES) {
+                try {
+                    Thread.sleep(RETRY_DELAY_MS * retryCount);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("上传被中断", ie);
+                }
+            }
+        }
+
+        failedUploads.incrementAndGet();
+        if (lastException != null) {
+            logger.error("上传文件最终失败: {} - {}", file.getName(), lastException.getMessage());
+            throw lastException;
+        } else {
+            throw new IOException("上传文件失败，已达到最大重试次数");
         }
     }
-
-}
+    }
