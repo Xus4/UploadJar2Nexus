@@ -3,7 +3,7 @@ const path = require('path');
 const { exec } = require('child_process');
 
 // ====== 修改以下参数 ======
-const tgzDir = 'E:\\github\\chat-master\\chat-cvcise\\packed-dependencies';
+const tgzDir = 'E:\\demo_project\\packed-dependencies';
 const registryUrl = 'http://localhost:8081/repository/npm-test/';
 // 如果需要认证，请确保已通过 `npm login --registry` 登录
 // =========================
