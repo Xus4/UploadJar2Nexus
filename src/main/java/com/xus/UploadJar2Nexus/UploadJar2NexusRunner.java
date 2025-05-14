@@ -55,7 +55,7 @@ public class UploadJar2NexusRunner {
     private static long startTime = 0;
 
     // Maven本地仓库路径，默认使用用户目录下的.m2/repository
-    public String repositoryPath = "C:\\Users\\luyim\\.m2\\repository";
+    public String repositoryPath = "E:\\repository";
     // Nexus仓库URL，根据实际部署情况修改
     public String nexusUrl = "http://localhost:8081/repository/maven2-test/";
     // Nexus仓库访问用户名
